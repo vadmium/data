@@ -16,7 +16,7 @@ from tkinter.ttk import Frame, Entry
 from xml.sax.saxutils import XMLGenerator
 from xml.sax import xmlreader
 from urllib.error import HTTPError
-from http import HTTPStatus
+import http.client
 
 ATOM_NS = "http://www.w3.org/2005/Atom"
 ATOM_PREFIX = "{" + ATOM_NS + "}"
@@ -76,7 +76,7 @@ class main:
                 types=("text/plain",),
             )
         except HTTPError as err:
-            if err.code != HTTPStatus.FORBIDDEN:
+            if err.code != http.client.FORBIDDEN:
                 raise
             print(err)
             # TODO: check content type
@@ -212,7 +212,7 @@ class main:
                 data=stream.detach().getvalue(),
             )
         except HTTPError as err:
-            if err.code != HTTPStatus.CONFLICT:
+            if err.code != http.client.CONFLICT:
                 print(TextIOWrapper(err, "ascii", "replace").read())
                 raise
             print(err, err.headers)
