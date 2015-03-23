@@ -401,6 +401,52 @@ def leds(start=2, end=None, *, models=None, models_end=None):
     
     tk.mainloop()
 
+def paint():
+    from fpdf import FPDF
+    sys.stdin = rewrap(sys.stdin, newline="")
+    reader = csv.reader(sys.stdin)
+    # A4
+    width = 0.5 ** (0.5 * (4 - 0.5)) / 1e-3
+    height = 0.5 ** (0.5 * (4 + 0.5)) / 1e-3
+    pdf = FPDF(orientation="L", unit="mm", format=(height, width))
+    pdf.add_page()
+    pdf.set_font("Times", size=9)
+    next_y = 0
+    for record in reader:
+        y = next_y
+        used = []
+        ys = []
+        for [i, data] in enumerate(record):
+            data = data.strip().replace("•", "*").replace("–", "--").replace("\n", "  ")
+            extent = pdf.get_string_width(data)
+            if i > len(record) / 2:
+                align = "R"
+                space = (i + 1) / len(record) * width
+                left = space - extent
+                x = 0
+                right = space
+            else:
+                align = "L"
+                left = i / len(record) * width
+                space = width - left
+                x = left
+                right = left + extent
+            for [r, upto] in enumerate(used):
+                if left >= upto:
+                    y = ys[r]
+                    break
+            else:
+                r = len(used)
+                used.append(None)
+                y = next_y
+                ys.append(y)
+            pdf.set_y(y)
+            pdf.set_x(x)
+            pdf.multi_cell(space, 9 / 72 * 25.4, data, align=align)
+            used[r] = right
+            next_y = max(next_y, pdf.get_y())
+    pdf.output()
+
 def urljoin_path(base, *segments):
     segments = (urllib.parse.quote(segment, safe=()) for segment in segments)
     return urllib.parse.urljoin(base, "/".join(segments))
