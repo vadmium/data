@@ -18,6 +18,7 @@ from xml.sax import xmlreader
 from urllib.error import HTTPError
 import http.client
 from contextlib import closing
+import json
 
 ATOM_NS = "http://www.w3.org/2005/Atom"
 ATOM_PREFIX = "{" + ATOM_NS + "}"
@@ -39,62 +40,37 @@ class main:
         self.entry.bind("<Return>", self.update_cell)
         self.entry.bind("<KP_Enter>", self.update_cell)
         
-        self.login = tkinter.Toplevel(self.tk)
-        self.login.bind("<Return>", self.on_login_enter)
-        self.login.bind("<KP_Enter>", self.on_login_enter)
-        self.login.wm_title("Log in")
-        form = Form(self.login)
-        self.email = Entry(self.login)
-        form.add_field(self.email, text="Email")
-        self.passwd = Entry(self.login, show="•")
-        form.add_field(self.passwd, text="Password")
-        self.email.focus_set()
+        self.auth_window = tkinter.Toplevel(self.tk)
+        self.auth_window.bind("<Return>", self.on_auth_enter)
+        self.auth_window.bind("<KP_Enter>", self.on_auth_enter)
+        self.auth_window.wm_title("Authorization")
+        form = Form(self.auth_window)
+        self.client = Entry(self.auth_window)
+        form.add_field(self.client, text="Client id.")
+        self.secret = Entry(self.auth_window)
+        form.add_field(self.secret, text="Client secret")
+        self.code = Entry(self.auth_window)
+        form.add_field(self.code, text="Authorization code")
+        self.refresh = Entry(self.auth_window)
+        form.add_field(self.refresh, text="Refresh token")
+        self.access = Entry(self.auth_window)
+        form.add_field(self.access, text="Access token")
+        self.client.focus_set()
         
         with PersistentConnectionHandler(timeout=100) as self.connection:
             self.session = urllib.request.build_opener(self.connection)
             self.tk.mainloop()
     
-    def on_login_enter(self, event):
-        if not self.passwd.get():
-            self.passwd.focus_set()
+    def on_auth_enter(self, event):
+        if not self.access.get():
+            self.access.focus_set()
             return
-        print("POST", self.email.get(), end=" ", flush=True, file=sys.stderr)
-        try:
-            response = http_request(
-                method="POST",
-                url="https://www.google.com/accounts/ClientLogin",
-                headers=(
-                    ("Content-Type",
-                        "application/x-www-form-urlencoded; charset=UTF-8"),
-                ),
-                data=urllib.parse.urlencode((
-                    ("accountType", "HOSTED_OR_GOOGLE"),
-                    ("Email", self.email.get()),
-                    ("Passwd", self.passwd.get()),
-                    ("service", "wise"),
-                    ("source", "data.py"),
-                ), encoding="utf-8").encode("ascii"),
-                types=("text/plain",),
-            )
-        except HTTPError as err:
-            if err.code != http.client.FORBIDDEN:
-                raise
-            print(err)
-            # TODO: check content type
-            properties = parse_login_response(err.headers, err)
-            print(properties)
-            # reason could be captcha required or incorrect username or password (text/plain)
-            # * Error=CaptchaRequired; CaptchaToken=. . .; CaptchaUrl=<to be joined to http://www.google.com/accounts/>
-            # * other errors; HTTP status text may not be as useful in most cases, but may be useful in some cases
-            raise PermissionError(properties["Error"]) from err
-        with response:
-            print(response.status, response.reason,
-                end="", flush=True, file=sys.stderr)
-            properties = parse_login_response(response.info(), response)
-        print(file=sys.stderr)
-        auth = "GoogleLogin auth=" + properties["Auth"]
+        self.client = self.client.get()
+        self.secret = self.secret.get()
+        self.refresh = self.refresh.get()
+        auth = "Bearer " + self.access.get()
         self.auth = ("Authorization", auth)
-        self.login.destroy()
+        self.auth_window.destroy()
         
         view_frame = Frame(self.tk)
         view_frame.pack(fill=tkinter.BOTH,
@@ -273,15 +249,74 @@ class main:
         return item
     
     def atom_request(self, *, method="GET", url, headers=(), **args):
-        all_headers = [self.auth]
-        all_headers.extend(headers)
+        all_headers = dict((
+            self.auth,
+            ("Accept", ", ".join(ATOM_TYPES)),
+        ))
+        all_headers.update(headers)
+        request = urllib.request.Request(method=method, url=url,
+            headers=all_headers, **args)
         print(method, url, end=" ", flush=True, file=sys.stderr)
-        with http_request(urlopen=self.session.open, types=ATOM_TYPES,
-                method=method, url=url, headers=all_headers,
-                **args) as response:
+        response = self.session.open(request)
+        try:
+            headers = response.info()
+            headers.set_default_type(None)
+            lengths = headers.get_all("Content-Length")
+            if lengths:
+                [zero] = lengths
+                zero = not int(zero)
+            else:
+                zero = False
+        except:
+            response.close()
+            raise
+        if zero:
+            # Google APIs seem to set Content-Length: 0 and Content-Type:
+            # application/binary when the access token has expired
+            print("Content-Length: 0", file=sys.stderr)
+            response.close()
+            
+            type = ("Content-Type",
+                "application/x-www-form-urlencoded; charset=UTF-8")
+            print("POST grant_type=refresh_token",
+                end=" ", flush=True, file=sys.stderr)
+            response = http_request(
+                method="POST",
+                # URL taken from "console" JSON data; documented URL failed
+                url="https://accounts.google.com/o/oauth2/token",
+                headers=(type,),
+                data=urllib.parse.urlencode((
+                    ("grant_type", "refresh_token"),
+                    ("refresh_token", self.refresh),
+                    ("client_id", self.client),
+                    ("client_secret", self.secret),
+                ), encoding="utf-8").encode("ascii"),
+                types=("application/json",),
+            )
+            with TextIOWrapper(response, "utf-8") as text:
+                print(response.status, response.reason,
+                    end=" ", flush=True, file=sys.stderr)
+                # TODO: limit data
+                response = json.load(text)
+            msg = "token_type: {token_type}, expires_in: {expires_in}"
+            print(msg.format_map(response), file=sys.stderr)
+            if response["token_type"] != "Bearer":
+                raise ValueError(response)
+            response = response["access_token"]
+            self.auth = ("Authorization", "Bearer " + response)
+            
+            request.add_header(*self.auth)
+            print(method, url, end=" ", flush=True, file=sys.stderr)
+            response = self.session.open(request)
+            headers = response.info()
+            headers.set_default_type(None)
+        with response:
             print(response.status, response.reason,
                 end="", flush=True, file=sys.stderr)
-            charset = response.info().get_content_charset()
+            type = headers.get_content_type()
+            if type not in ATOM_TYPES:
+                raise TypeError(type)
+            charset = headers.get_content_charset()
             parser = ElementTree.XMLParser(encoding=charset)
             tree = ElementTree.parse(response, parser)
         print(file=sys.stderr)
@@ -311,18 +346,6 @@ class Filter:
                 attached.append(item)
         self.ui.view.set_children("", *attached)
         self.window.destroy()
-
-def parse_login_response(headers, stream):
-    charset = headers.get_content_charset("ascii")
-    # TODO: limit size of response
-    result = dict()
-    for line in TextIOWrapper(stream, charset):
-        line = line.rstrip("\r\n")
-        [name, value] = line.split("=", 1)
-        if name in result:
-            raise ValueError(line)
-        result[name] = value
-    return result
 
 def parse_row(entry):
     values = list()
