@@ -273,7 +273,7 @@ class main:
         if zero:
             # Google APIs seem to set Content-Length: 0 and Content-Type:
             # application/binary when the access token has expired
-            print("Content-Length: 0", file=sys.stderr)
+            print("Content-Length: 0; access expired?", file=sys.stderr)
             response.close()
             
             type = ("Content-Type",
