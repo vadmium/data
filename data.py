@@ -2,7 +2,7 @@
 
 import csv
 import sys
-from io import TextIOWrapper, BufferedWriter, BufferedIOBase
+from io import TextIOWrapper, BytesIO
 import tkinter
 from tkwrap import Tree, scroll, Form
 from functions import attributes
@@ -57,8 +57,8 @@ class main:
         form.add_field(self.access, text="Access token")
         self.client.focus_set()
         
-        with PersistentConnectionHandler(timeout=100) as self.connection:
-            self.session = urllib.request.build_opener(self.connection)
+        with PersistentConnectionHandler(timeout=100) as connection:
+            self.session = urllib.request.build_opener(connection)
             self.tk.mainloop()
     
     def on_auth_enter(self, event):
@@ -163,13 +163,13 @@ class main:
     def update_cell(self, event):
         request = self.send_atom("PUT", self.edit_links[self.item])
         with closing(request):
-            xml = next(request)  # Start sending request body
+            xml = next(request)  # Start generating request body
             name = "gsx:" + self.name_list[self.column]
             xml.startElement(name, xmlreader.AttributesImpl(dict()))
             xml.characters(self.entry_var.get())
             xml.endElement(name)
             try:
-                [entry] = request  # Finish request and receive response
+                [entry] = request  # Send request and receive response
             except HTTPError as err:
                 if err.code != http.client.CONFLICT:
                     print(TextIOWrapper(err, "ascii", "replace").read())
@@ -186,53 +186,38 @@ class main:
     
     def on_add_enter(self, event):
         with closing(self.send_atom("POST", self.post)) as request:
-            xml = next(request)  # Start sending request body
+            xml = next(request)  # Start generating request body
             for [name, entry] in zip(self.name_list, self.add_entries):
                 name = "gsx:" + name
                 xml.startElement(name, xmlreader.AttributesImpl(dict()))
                 xml.characters(entry.get())
                 xml.endElement(name)
                 xml.ignorableWhitespace("\n")
-            [entry] = request  # Finish request and receive response
+            [entry] = request  # Send request and receive response
         item = self.add_entry(entry)
         self.view.selection_set((item,))
         self.view.see(item)
     
     def send_atom(self, method, url):
-        request = urllib.request.Request(url, method=method)
-        request.add_header(*self.auth)
-        request.add_header("Accept", ", ".join(ATOM_TYPES))
-        request.add_header("Content-Type",
-            "application/atom+xml; charset=UTF-8")
-        request.add_header("Transfer-Encoding", "chunked")
-        print(method, url, end=" ", flush=True, file=sys.stderr)
-        self.connection.start_request(request)
-        encoder = ChunkEncoder(self.connection.get_writer())
-        stream = TextIOWrapper(encoder, "utf-8", "xmlcharrefreplace",
+        stream = TextIOWrapper(BytesIO(), "utf-8", "xmlcharrefreplace",
             newline="\r\n")
-        with stream:
-            xml = XMLGenerator(stream, "UTF-8",
-                short_empty_elements=True)
-            xml.startDocument()
-            xml.startElement("entry", xmlreader.AttributesImpl({
-                "xmlns": ATOM_NS,
-                "xmlns:gsx": GOOGLE_SHEETX_NS,
-            }))
-            yield xml
-            xml.endElement("entry")
-            xml.ignorableWhitespace("\n")
-            xml.endDocument()
-        encoder.write_eof()
-        with self.connection.get_response() as response:
-            print(response.status, response.reason,
-                end="", flush=True, file=sys.stderr)
-            type = response.msg.get_content_type()
-            if type not in ATOM_TYPES:
-                raise TypeError("Unexpected content type " + repr(type))
-            charset = response.msg.get_content_charset()
-            parser = ElementTree.XMLParser(encoding=charset)
-            tree = ElementTree.parse(response, parser)
-        print(file=sys.stderr)
+        xml = XMLGenerator(stream, "UTF-8", short_empty_elements=True)
+        xml.startDocument()
+        xml.startElement("entry", xmlreader.AttributesImpl({
+            "xmlns": ATOM_NS,
+            "xmlns:gsx": GOOGLE_SHEETX_NS,
+        }))
+        yield xml
+        xml.endElement("entry")
+        xml.ignorableWhitespace("\n")
+        xml.endDocument()
+        
+        tree = self.atom_request(method=method, url=url,
+            headers=(
+                ("Content-Type", "application/atom+xml; charset=UTF-8"),
+            ),
+            data=stream.detach().getvalue(),
+        )
         yield tree
     
     def get_feed(self, rel, projection=None, query=()):
@@ -315,7 +300,7 @@ class main:
                 end="", flush=True, file=sys.stderr)
             type = headers.get_content_type()
             if type not in ATOM_TYPES:
-                raise TypeError(type)
+                raise TypeError("Unexpected content type " + repr(type))
             charset = headers.get_content_charset()
             parser = ElementTree.XMLParser(encoding=charset)
             tree = ElementTree.parse(response, parser)
@@ -470,26 +455,6 @@ def paint():
             used[r] = right
             next_y = max(next_y, pdf.get_y())
     pdf.output()
-
-class ChunkEncoder(BufferedIOBase):
-    def writable(self):
-        return True
-    
-    def __init__(self, writer):
-        self._writer = writer
-    
-    def write(self, b):
-        with memoryview(b) as view:
-            if not view.nbytes:
-                return 0
-            line = "{:X}\r\n".format(view.nbytes)
-            self._writer.write(line.encode("ascii"))
-            self._writer.write(b)
-            self._writer.write(b"\r\n")
-            return view.nbytes
-    
-    def write_eof(self):
-        self._writer.write(b"0\r\n" b"\r\n")
 
 def urljoin_path(base, *segments):
     segments = (urllib.parse.quote(segment, safe=()) for segment in segments)
