@@ -32,6 +32,11 @@ GOOGLE_SHEETX_NS = GOOGLE_SHEET_NS + "/extended"
 
 class main:
     def __init__(self):
+        reader = open("settings.csv", "rt", encoding="ascii", newline="")
+        with reader:
+            settings = dict(csv.reader(reader))
+        self.spreadsheet = settings["spreadsheet"]
+        
         self.tk = tkinter.Tk()
         
         self.entry_var = tkinter.StringVar()
@@ -47,14 +52,18 @@ class main:
         form = Form(self.auth_window)
         self.client = Entry(self.auth_window)
         form.add_field(self.client, text="Client id.")
+        self.client.insert(0, settings.get("client_id", ""))
         self.secret = Entry(self.auth_window)
         form.add_field(self.secret, text="Client secret")
+        self.secret.insert(0, settings.get("client_secret", ""))
         self.code = Entry(self.auth_window)
         form.add_field(self.code, text="Authorization code")
         self.refresh = Entry(self.auth_window)
         form.add_field(self.refresh, text="Refresh token")
+        self.refresh.insert(0, settings.get("refresh_token", ""))
         self.access = Entry(self.auth_window)
         form.add_field(self.access, text="Access token")
+        self.access.insert(0, settings.get("access_token", ""))
         self.client.focus_set()
         
         with PersistentConnectionHandler(timeout=100) as connection:
@@ -62,14 +71,14 @@ class main:
             self.tk.mainloop()
     
     def on_auth_enter(self, event):
-        if not self.access.get():
-            self.access.focus_set()
-            return
         self.client = self.client.get()
         self.secret = self.secret.get()
         self.refresh = self.refresh.get()
-        auth = "Bearer " + self.access.get()
-        self.auth = ("Authorization", auth)
+        if self.access.get():
+            auth = "Bearer " + self.access.get()
+            self.auth = ("Authorization", auth)
+        else:
+            self.auth = None
         self.auth_window.destroy()
         
         view_frame = Frame(self.tk)
@@ -78,7 +87,7 @@ class main:
         
         url = urljoin_path(
             "https://spreadsheets.google.com/feeds/worksheets/",
-            "1VJzt-EuvEc5b9gKzhvbekYgnXSDpXiWMt_BXp-mSmms",
+            self.spreadsheet,
             "private",
             "basic",
         )
@@ -234,33 +243,31 @@ class main:
         return item
     
     def atom_request(self, *, method="GET", url, headers=(), **args):
-        all_headers = dict((
-            self.auth,
-            ("Accept", ", ".join(ATOM_TYPES)),
-        ))
+        all_headers = {"Accept": ", ".join(ATOM_TYPES)}
         all_headers.update(headers)
         request = urllib.request.Request(method=method, url=url,
             headers=all_headers, **args)
-        print(method, url, end=" ", flush=True, file=sys.stderr)
-        response = self.session.open(request)
-        try:
-            headers = response.info()
-            headers.set_default_type(None)
-            lengths = headers.get_all("Content-Length")
-            if lengths:
-                [zero] = lengths
-                zero = not int(zero)
-            else:
-                zero = False
-        except:
-            response.close()
-            raise
-        if zero:
-            # Google APIs seem to set Content-Length: 0 and Content-Type:
-            # application/binary when the access token has expired
-            print("Content-Length: 0; access expired?", file=sys.stderr)
-            response.close()
-            
+        if self.auth:
+            [response, headers] = self.try_request(request)
+            try:
+                # Google APIs seem to set Content-Length: 0 and Content-Type:
+                # application/binary when the access token has expired
+                length = headers.get_all("Content-Length")
+                if length:
+                    [length] = length
+                    if int(length) == 0:
+                        print("Content-Length: 0; access expired?",
+                            file=sys.stderr)
+                        response.close()
+                        refresh = True
+                else:
+                    refresh = False
+            except:
+                response.close()
+                raise
+        else:
+            refresh = True
+        if refresh:
             type = ("Content-Type",
                 "application/x-www-form-urlencoded; charset=UTF-8")
             print("POST grant_type=refresh_token",
@@ -289,12 +296,7 @@ class main:
                 raise ValueError(response)
             response = response["access_token"]
             self.auth = ("Authorization", "Bearer " + response)
-            
-            request.add_header(*self.auth)
-            print(method, url, end=" ", flush=True, file=sys.stderr)
-            response = self.session.open(request)
-            headers = response.info()
-            headers.set_default_type(None)
+            [response, headers] = self.try_request(request)
         with response:
             print(response.status, response.reason,
                 end="", flush=True, file=sys.stderr)
@@ -306,6 +308,15 @@ class main:
             tree = ElementTree.parse(response, parser)
         print(file=sys.stderr)
         return tree
+    
+    def try_request(self, request):
+        request.add_header(*self.auth)
+        print(request.get_method(), request.full_url,
+            end=" ", flush=True, file=sys.stderr)
+        response = self.session.open(request)
+        headers = response.info()
+        headers.set_default_type(None)
+        return (response, headers)
 
 class Filter:
     def __init__(self, ui, column):
