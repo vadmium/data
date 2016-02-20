@@ -266,23 +266,31 @@ class main:
         request = urllib.request.Request(method=method, url=url,
             headers=all_headers, **args)
         if "access_token" in self.settings:
-            [response, headers] = self.try_request(request)
             try:
-                # Google APIs seem to set Content-Length: 0 and Content-Type:
-                # application/binary when the access token has expired
-                length = headers.get_all("Content-Length")
-                if length:
-                    [length] = length
-                    if int(length) == 0:
-                        print("Content-Length: 0; access expired?",
-                            file=sys.stderr)
-                        response.close()
-                        refresh = True
-                else:
-                    refresh = False
-            except:
-                response.close()
-                raise
+                [response, headers] = self.try_request(request)
+            except HTTPError as response:
+                if response.status != http.client.UNAUTHORIZED:
+                    raise
+                print(response.status, response.reason, file=sys.stderr)
+                refresh = True
+            else:
+                try:
+                    # Google APIs seem to set Content-Length: 0 and
+                    # Content-Type: application/binary when the access token
+                    # has expired
+                    length = headers.get_all("Content-Length")
+                    if length:
+                        [length] = length
+                        if int(length) == 0:
+                            print("Content-Length: 0; access expired?",
+                                file=sys.stderr)
+                            response.close()
+                            refresh = True
+                    else:
+                        refresh = False
+                except:
+                    response.close()
+                    raise
         else:
             refresh = True
         if refresh:
