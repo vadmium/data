@@ -19,6 +19,10 @@ from urllib.error import HTTPError
 import http.client
 from contextlib import closing
 import json
+from tempfile import NamedTemporaryFile
+import os
+from shutil import copystat
+from collections import OrderedDict
 
 ATOM_NS = "http://www.w3.org/2005/Atom"
 ATOM_PREFIX = "{" + ATOM_NS + "}"
@@ -34,8 +38,8 @@ class main:
     def __init__(self):
         reader = open("settings.csv", "rt", encoding="ascii", newline="")
         with reader:
-            settings = dict(csv.reader(reader))
-        self.spreadsheet = settings["spreadsheet"]
+            self.settings = OrderedDict(csv.reader(reader))
+        self.settings_changed = False
         
         self.tk = tkinter.Tk()
         
@@ -52,33 +56,47 @@ class main:
         form = Form(self.auth_window)
         self.client = Entry(self.auth_window)
         form.add_field(self.client, text="Client id.")
-        self.client.insert(0, settings.get("client_id", ""))
+        self.client.insert(0, self.settings.get("client_id", ""))
         self.secret = Entry(self.auth_window)
         form.add_field(self.secret, text="Client secret")
-        self.secret.insert(0, settings.get("client_secret", ""))
+        self.secret.insert(0, self.settings.get("client_secret", ""))
         self.code = Entry(self.auth_window)
         form.add_field(self.code, text="Authorization code")
         self.refresh = Entry(self.auth_window)
         form.add_field(self.refresh, text="Refresh token")
-        self.refresh.insert(0, settings.get("refresh_token", ""))
+        self.refresh.insert(0, self.settings.get("refresh_token", ""))
         self.access = Entry(self.auth_window)
         form.add_field(self.access, text="Access token")
-        self.access.insert(0, settings.get("access_token", ""))
+        self.access.insert(0, self.settings.get("access_token", ""))
         self.client.focus_set()
         
         with PersistentConnectionHandler(timeout=100) as connection:
             self.session = urllib.request.build_opener(connection)
             self.tk.mainloop()
+        
+        if self.settings_changed:
+            # Create the new file with a similar name in the same directory
+            new = NamedTemporaryFile(delete=False,
+                dir=os.curdir, prefix="settings.csv~",
+                mode="wt", encoding="ascii", newline="")
+            try:
+                with new:
+                    # Copy file metadata, but do not bother copying contents
+                    stat = os.stat("settings.csv")
+                    copystat("settings.csv", new.name)
+                    os.chown(new.name, stat.st_uid, stat.st_gid)
+                    csv.writer(new).writerows(self.settings.items())
+                os.replace(new.name, "settings.csv")
+            except:
+                os.unlink(new.name)
+                raise
     
     def on_auth_enter(self, event):
-        self.client = self.client.get()
-        self.secret = self.secret.get()
-        self.refresh = self.refresh.get()
+        self.settings["client_id"] = self.client.get()
+        self.settings["client_secret"] = self.secret.get()
+        self.settings["refresh_token"] = self.refresh.get()
         if self.access.get():
-            auth = "Bearer " + self.access.get()
-            self.auth = ("Authorization", auth)
-        else:
-            self.auth = None
+            self.settings["access_token"] = self.access.get()
         self.auth_window.destroy()
         
         view_frame = Frame(self.tk)
@@ -87,7 +105,7 @@ class main:
         
         url = urljoin_path(
             "https://spreadsheets.google.com/feeds/worksheets/",
-            self.spreadsheet,
+            self.settings["spreadsheet"],
             "private",
             "basic",
         )
@@ -234,7 +252,7 @@ class main:
         if projection is not None:
             url = urljoin_path(url, projection)
         url = urllib.parse.urljoin(url, "?" + urllib.parse.urlencode(query))
-        return self.atom_request(url=url, headers=(self.auth,))
+        return self.atom_request(url=url)
     
     def add_entry(self, entry):
         [values, edit] = parse_row(entry)
@@ -247,7 +265,7 @@ class main:
         all_headers.update(headers)
         request = urllib.request.Request(method=method, url=url,
             headers=all_headers, **args)
-        if self.auth:
+        if "access_token" in self.settings:
             [response, headers] = self.try_request(request)
             try:
                 # Google APIs seem to set Content-Length: 0 and Content-Type:
@@ -279,9 +297,9 @@ class main:
                 headers=(type,),
                 data=urllib.parse.urlencode((
                     ("grant_type", "refresh_token"),
-                    ("refresh_token", self.refresh),
-                    ("client_id", self.client),
-                    ("client_secret", self.secret),
+                    ("refresh_token", self.settings["refresh_token"]),
+                    ("client_id", self.settings["client_id"]),
+                    ("client_secret", self.settings["client_secret"]),
                 ), encoding="utf-8").encode("ascii"),
                 types=("application/json",),
             )
@@ -294,8 +312,8 @@ class main:
             print(msg.format_map(response), file=sys.stderr)
             if response["token_type"] != "Bearer":
                 raise ValueError(response)
-            response = response["access_token"]
-            self.auth = ("Authorization", "Bearer " + response)
+            self.settings["access_token"] = response["access_token"]
+            self.settings_changed = True
             [response, headers] = self.try_request(request)
         with response:
             print(response.status, response.reason,
@@ -310,7 +328,8 @@ class main:
         return tree
     
     def try_request(self, request):
-        request.add_header(*self.auth)
+        auth = "Bearer " + self.settings["access_token"]
+        request.add_header("Authorization", auth)
         print(request.get_method(), request.full_url,
             end=" ", flush=True, file=sys.stderr)
         response = self.session.open(request)
