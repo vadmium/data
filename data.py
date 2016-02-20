@@ -20,7 +20,7 @@ import http.client
 from contextlib import closing
 import json
 from tempfile import NamedTemporaryFile
-import os
+import os, os.path
 from shutil import copystat
 from collections import OrderedDict
 
@@ -35,8 +35,9 @@ POST_REL = "http://schemas.google.com/g/2005#post"
 GOOGLE_SHEETX_NS = GOOGLE_SHEET_NS + "/extended"
 
 class main:
-    def __init__(self):
-        reader = open("settings.csv", "rt", encoding="ascii", newline="")
+    def __init__(self, settings="settings.csv"):
+        self.settings_file = settings
+        reader = open(self.settings_file, "rt", encoding="ascii", newline="")
         with reader:
             self.settings = OrderedDict(csv.reader(reader))
         self.settings_changed = False
@@ -76,17 +77,18 @@ class main:
         
         if self.settings_changed:
             # Create the new file with a similar name in the same directory
+            [dir, file] = os.path.split(self.settings_file)
             new = NamedTemporaryFile(delete=False,
-                dir=os.curdir, prefix="settings.csv~",
+                dir=dir or os.curdir, prefix=file + "~",
                 mode="wt", encoding="ascii", newline="")
             try:
                 with new:
                     # Copy file metadata, but do not bother copying contents
-                    stat = os.stat("settings.csv")
-                    copystat("settings.csv", new.name)
+                    stat = os.stat(self.settings_file)
+                    copystat(self.settings_file, new.name)
                     os.chown(new.name, stat.st_uid, stat.st_gid)
                     csv.writer(new).writerows(self.settings.items())
-                os.replace(new.name, "settings.csv")
+                os.replace(new.name, self.settings_file)
             except:
                 os.unlink(new.name)
                 raise
@@ -405,7 +407,6 @@ def dump_tree(element, indent=""):
 @attributes(param_types=dict(start=int, end=int, models_end=int))
 def leds(start=2, end=None, *, models=None, models_end=None):
     if models is None:
-        import os.path
         models = os.path.expanduser("~/proj/light/leds-models.csv")
     sys.stdin = open("~/proj/light/leds-models.csv")
     
