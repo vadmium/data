@@ -61,8 +61,6 @@ class main:
         self.secret = Entry(self.auth_window)
         form.add_field(self.secret, text="Client secret")
         self.secret.insert(0, self.settings.get("client_secret", ""))
-        self.code = Entry(self.auth_window)
-        form.add_field(self.code, text="Authorization code")
         self.refresh = Entry(self.auth_window)
         form.add_field(self.refresh, text="Refresh token")
         self.refresh.insert(0, self.settings.get("refresh_token", ""))
