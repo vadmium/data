@@ -17,7 +17,7 @@ from xml.sax.saxutils import XMLGenerator
 from xml.sax import xmlreader
 from urllib.error import HTTPError
 import http.client
-from contextlib import closing
+from contextlib import closing, contextmanager
 import json
 from tempfile import NamedTemporaryFile
 import os, os.path
@@ -428,72 +428,72 @@ def leds(start=2, end=None, *, models=None, models_end=None):
     
     tk = tkinter.Tk()
     
-    sys.stdin = rewrap(sys.stdin, newline="")
-    reader = csv.reader(sys.stdin)
-    headings = next(reader) + ["A"]
-    columns = (dict(heading=heading, width=10) for heading in headings)
-    tree = Tree(tk, tree=False, columns=columns)
-    scroll(tree)
-    tree.focus_set()
-    
-    row = 2
-    for record in csv.reader(sys.stdin):
-        if end is not None and row >= end:
-            break
-        if row >= start:
-            tree.add(values=record + [model_data[record[0]]["Max. A"]])
-        row += 1
-    else:
-        if row < start or end is not None and row < end:
-            warn("Records stopped early, at row {}".format(row))
+    with rewrap(sys.stdin, newline="") as input:
+        reader = csv.reader(input)
+        headings = next(reader) + ["A"]
+        columns = (dict(heading=heading, width=10) for heading in headings)
+        tree = Tree(tk, tree=False, columns=columns)
+        scroll(tree)
+        tree.focus_set()
+        
+        row = 2
+        for record in csv.reader(input):
+            if end is not None and row >= end:
+                break
+            if row >= start:
+                tree.add(values=record + [model_data[record[0]]["Max. A"]])
+            row += 1
+        else:
+            if row < start or end is not None and row < end:
+                warn("Records stopped early, at row {}".format(row))
     
     tk.mainloop()
 
 def paint():
     from fpdf import FPDF
-    sys.stdin = rewrap(sys.stdin, newline="")
-    reader = csv.reader(sys.stdin)
-    # A4
-    width = 0.5 ** (0.5 * (4 - 0.5)) / 1e-3
-    height = 0.5 ** (0.5 * (4 + 0.5)) / 1e-3
-    pdf = FPDF(orientation="L", unit="mm", format=(height, width))
-    pdf.add_page()
-    pdf.set_font("Times", size=9)
-    next_y = 0
-    for record in reader:
-        y = next_y
-        used = []
-        ys = []
-        for [i, data] in enumerate(record):
-            data = data.strip().replace("•", "*").replace("–", "--").replace("\n", "  ")
-            extent = pdf.get_string_width(data)
-            if i > len(record) / 2:
-                align = "R"
-                space = (i + 1) / len(record) * width
-                left = space - extent
-                x = 0
-                right = space
-            else:
-                align = "L"
-                left = i / len(record) * width
-                space = width - left
-                x = left
-                right = left + extent
-            for [r, upto] in enumerate(used):
-                if left >= upto:
-                    y = ys[r]
-                    break
-            else:
-                r = len(used)
-                used.append(None)
-                y = next_y
-                ys.append(y)
-            pdf.set_y(y)
-            pdf.set_x(x)
-            pdf.multi_cell(space, 9 / 72 * 25.4, data, align=align)
-            used[r] = right
-            next_y = max(next_y, pdf.get_y())
-    pdf.output()
+    with rewrap(sys.stdin, newline="") as input:
+        reader = csv.reader(input)
+        # A4
+        width = 0.5 ** (0.5 * (4 - 0.5)) / 1e-3
+        height = 0.5 ** (0.5 * (4 + 0.5)) / 1e-3
+        pdf = FPDF(orientation="L", unit="mm", format=(height, width))
+        pdf.add_page()
+        pdf.set_font("Times", size=9)
+        next_y = 0
+        for record in reader:
+            y = next_y
+            used = []
+            ys = []
+            for [i, data] in enumerate(record):
+                data = data.strip().replace("•", "*").replace("–", "--").replace("\n", "  ")
+                extent = pdf.get_string_width(data)
+                if i > len(record) / 2:
+                    align = "R"
+                    space = (i + 1) / len(record) * width
+                    left = space - extent
+                    x = 0
+                    right = space
+                else:
+                    align = "L"
+                    left = i / len(record) * width
+                    space = width - left
+                    x = left
+                    right = left + extent
+                for [r, upto] in enumerate(used):
+                    if left >= upto:
+                        y = ys[r]
+                        break
+                else:
+                    r = len(used)
+                    used.append(None)
+                    y = next_y
+                    ys.append(y)
+                pdf.set_y(y)
+                pdf.set_x(x)
+                pdf.multi_cell(space, 9 / 72 * 25.4, data, align=align)
+                used[r] = right
+                next_y = max(next_y, pdf.get_y())
+        pdf.output()
 
 def urljoin_path(base, *segments):
     segments = (urllib.parse.quote(segment, safe=()) for segment in segments)
@@ -513,20 +513,19 @@ class AlnumOnlyMap(UnicodeMap):
         else:
             return None
 
-INHERIT = object()
-
-def rewrap(stream,
-        encoding=INHERIT, errors=INHERIT, newline=None,
-        line_buffering=INHERIT, write_through=False):
-    if encoding is INHERIT:
-        encoding = stream.encoding
-    if errors is INHERIT:
-        errors = stream.errors
-    if line_buffering is INHERIT:
-        line_buffering = stream.line_buffering
-    return TextIOWrapper(stream.detach(), encoding, errors,
-        newline=newline, line_buffering=line_buffering,
-        write_through=write_through)
+@contextmanager
+def rewrap(stream, **params):
+    params.setdefault("encoding", stream.encoding)
+    params.setdefault("errors", stream.errors)
+    params.setdefault("line_buffering", stream.line_buffering)
+    stream.flush()
+    result = TextIOWrapper(stream.buffer, **params)
+    try:
+        yield result
+    finally:
+        if stream.line_buffering and not result.line_buffering:
+            result.flush()
+        result.detach()
 
 if __name__ == "__main__":
     import clifunc
