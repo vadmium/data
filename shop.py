@@ -44,8 +44,7 @@ class main:
                 [page_counter] = response.iterfind(
                     ".//*[@class='mpcCounter']")
                 page_counter = int("".join(page_counter.itertext()))
-                rows = scrape_table(response)
-                page_header = next(rows)
+                page_header = tuple(scrape_header(response))
                 if first:
                     counter = page_counter
                     header = page_header
@@ -53,7 +52,7 @@ class main:
                     first = False
                 assert page_counter == counter
                 assert page_header == header
-                for row in rows:
+                for row in scrape_records(response):
                     total += 1
                     assert len(row) == len(header)
                     out.writerow(row)
@@ -66,7 +65,7 @@ class main:
                 url = url.get("href")
             assert total == counter
 
-def scrape_table(response):
+def scrape_header(response):
     header = None
     for elem in response.iterfind(".//table[@class]"):
         if "srtnTblHeader" in elem.get("class").split():
@@ -75,14 +74,15 @@ def scrape_table(response):
     header = header.find(".//tr")
     header = ("".join(cell.itertext()).strip() for cell in header.iter("td"))
     
-    out_header = ["href", "prodDesc"]
-    out_header.append(next(header))
-    out_header.extend(("pricing", "packaging", "pack size", "min packs"))
-    part_header = list()
+    yield from ("href", "prodDesc")
+    yield next(header)
+    yield from ("pricing", "packaging", "pack size", "min packs")
     cell = next(header)
     assert cell == "Part Details"
-    header = list(header)
-    
+    yield from PART_DETAILS
+    yield from header
+
+def scrape_records(response):
     [table] = response.iterfind(".//table[@class='srtnListTbl']")
     for [i, row] in enumerate(table.iterfind(".//tr")):
         row = row.iterfind(".//td")
@@ -120,20 +120,23 @@ def scrape_table(response):
             out_row.extend((size, pricing, size, qty))
         
         cell = next(row)
-        labels = list()
-        for detail in cell.iterfind(".//li"):
-            labels.append("".join(detail[0].itertext()))
-            text = "".join(t for elem in detail[1:] for t in elem.itertext())
-            out_row.append(text.strip())
+        details = cell.iterfind(".//li")
+        for label in PART_DETAILS:
+            try:
+                detail = next(details)
+            except StopIteration:
+                assert label ==  "Mfr. Part No."
+                out_row.append(None)
+            else:
+                assert "".join(detail[0].itertext()) == label
+                text = "".join(t
+                    for elem in detail[1:] for t in elem.itertext())
+                out_row.append(text.strip())
         
         out_row.extend("".join(cell.itertext()).strip() for cell in row)
-        
-        if i:
-            assert labels == part_header
-        else:
-            part_header = labels
-            yield out_header + part_header + header
         yield out_row
+
+PART_DETAILS = ("RS Stock No.", "Brand", "Mfr. Part No.")
 
 def get_cached(url, urlopen, cleanup):
     print(end="GET {} ".format(url), flush=True, file=stderr)
