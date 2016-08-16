@@ -55,7 +55,7 @@ def scrape_table(response):
     
     out_header = ["href", "prodDesc"]
     out_header.append(next(header))
-    out_header.extend(("packaging", "qty"))
+    out_header.extend(("pricing", "packaging", "pack size", "min packs"))
     part_header = list()
     cell = next(header)
     assert cell == "Part Details"
@@ -78,16 +78,24 @@ def scrape_table(response):
         pricing = iter(pricing)
         out_row.append("".join(next(pricing).itertext()))
         pricing = "".join(t for elem in pricing for t in elem.itertext())
-        out_row.append(pricing)
-        
         [qty] = cell.iterfind(".//*[@class='qty']//input")
         qty = int(qty.get("value"))
-        out_row.append(qty)
-        if qty == 1:
-            expected = ("Each", "1 ")
+        
+        per_item_prefix = "Each (In a "
+        per_item_suffix = ")"
+        if pricing == "Each":
+            out_row.extend((1, "Each", 1, qty))
+        elif pricing.startswith(per_item_prefix) \
+                and pricing.endswith(per_item_suffix):
+            pricing = pricing[len(per_item_prefix):-len(per_item_suffix)]
+            [pricing, size] = pricing.rsplit(" of ", 1)
+            assert int(size) == qty
+            out_row.extend((1, pricing, size, 1))
         else:
-            expected = "Each (In a Pack of {})".format(qty)
-        assert pricing.startswith(expected), (qty, pricing)
+            prefix = "1 "
+            assert pricing.startswith(prefix)
+            [pricing, size] = pricing[len(prefix):].rsplit(" of ", 1)
+            out_row.extend((size, pricing, size, qty))
         
         cell = next(row)
         labels = list()
