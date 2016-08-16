@@ -101,13 +101,17 @@ def scrape_records(response):
         [qty] = cell.iterfind(".//*[@class='qty']//input")
         qty = int(qty.get("value"))
         
-        per_item_prefix = "Each (In a "
+        per_item_prefix = "Each ("
         per_item_suffix = ")"
         if pricing == "Each":
             out_row.extend((1, "Each", 1, qty))
         elif pricing.startswith(per_item_prefix) \
                 and pricing.endswith(per_item_suffix):
             pricing = pricing[len(per_item_prefix):-len(per_item_suffix)]
+            for prefix in ("In a ", "On a "):
+                if pricing.startswith(prefix):
+                    pricing = pricing[len(prefix):]
+                    break
             [pricing, size] = pricing.rsplit(" of ", 1)
             assert int(size) == qty
             out_row.extend((1, pricing, size, 1))
