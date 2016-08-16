@@ -47,6 +47,11 @@ class main:
             self.entry.selection_range(0, tkinter.END)
             self.column = int(column.lstrip("#")) - 1
             self.entry.focus_set()
+        if region == "heading":
+            def key(item):
+                return self.view.set(item, column)
+            items = sorted(self.view.get_children(), key=key)
+            self.view.set_children("", *items)
     
     def on_context(self, event):
         column = self.view.identify_column(event.x)
