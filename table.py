@@ -10,6 +10,10 @@ from data import rewrap
 class main:
     def __init__(self, input=None):
         self.tk = tkinter.Tk()
+        self.entry = Entry(self.tk)
+        self.entry.pack(fill=tkinter.BOTH, side=tkinter.TOP)
+        view_frame = Frame(self.tk)
+        view_frame.pack(fill=tkinter.BOTH, side=tkinter.BOTTOM, expand=True)
         
         if input is None:
             input = rewrap(stdin, newline="")
@@ -20,8 +24,9 @@ class main:
             columns = next(input)
             columns = (dict(heading=heading, width=10)
                 for heading in columns)
-            self.view = Tree(self.tk, tree=False, columns=columns)
+            self.view = Tree(view_frame, tree=False, columns=columns)
             scroll(self.view)
+            self.view.bind("<ButtonRelease-1>", self.on_click)
             self.view.bind("<Button-3>", self.on_context)
             self.view.focus_set()
             
@@ -30,6 +35,17 @@ class main:
                 self.items.append(self.view.add(values=record))
         
         self.tk.mainloop()
+    
+    def on_click(self, event):
+        column = self.view.identify_column(event.x)
+        region = self.view.identify_region(event.x, event.y)
+        if region == "cell":
+            item = self.view.identify_row(event.y)
+            self.entry.delete(0, tkinter.END)
+            self.entry.insert(0, self.view.set(item, column))
+            self.entry.selection_range(0, tkinter.END)
+            self.column = int(column.lstrip("#")) - 1
+            self.entry.focus_set()
     
     def on_context(self, event):
         column = self.view.identify_column(event.x)
