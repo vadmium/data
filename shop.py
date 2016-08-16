@@ -18,13 +18,11 @@ import email.generator
 from data import rewrap
 
 class main:
-    def __init__(self):
+    def __init__(self, url):
         with PersistentConnectionHandler(timeout=100) as handler, \
                 rewrap(stdout, newline="") as out:
             urlopen = urllib.request.build_opener(handler).open
             out = csv.writer(out)
-            url = "https://au.rs-online.com/web/c/" \
-                "connectors/pcb-connectors/pcb-pin-socket-strips/"
             
             first = True
             total = 0
