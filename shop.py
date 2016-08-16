@@ -6,7 +6,6 @@ from io import TextIOWrapper, BufferedIOBase
 from net import PersistentConnectionHandler, http_request
 import urllib.request
 from xml.etree.ElementTree import TreeBuilder
-from urllib.parse import urlsplit
 from contextlib import ExitStack
 from html.parser import HTMLParser
 from streams import DelegateWriter
@@ -137,9 +136,8 @@ def scrape_table(response):
 
 def get_cached(url, urlopen, cleanup):
     print(end="GET {} ".format(url), flush=True, file=stderr)
-    split = urlsplit(url)
-    path = split.path.split("/")
-    dir = os.path.join(split.scheme, split.netloc, *path[:-1])
+    path = url.split("/")
+    dir = os.path.join(*path[:-1])
     suffix = hashlib.md5(url.encode()).digest()[:6]
     suffix = urlsafe_b64encode(suffix).decode("ascii")
     if path[-1]:
