@@ -55,6 +55,7 @@ class main:
                 assert page_header == header
                 for row in rows:
                     total += 1
+                    assert len(row) == len(header)
                     out.writerow(row)
                 links = response.iterfind(".//link[@rel='next']")
                 try:

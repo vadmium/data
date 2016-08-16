@@ -27,7 +27,6 @@ class main:
             
             self.items = list()
             for record in input:
-                assert len(record) == len(columns)
                 self.items.append(self.view.add(values=record))
         
         self.tk.mainloop()
