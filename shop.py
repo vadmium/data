@@ -20,29 +20,51 @@ from data import rewrap
 
 class main:
     def __init__(self):
-        with PersistentConnectionHandler(timeout=100) as handler:
+        with PersistentConnectionHandler(timeout=100) as handler, \
+                rewrap(stdout, newline="") as out:
             urlopen = urllib.request.build_opener(handler).open
+            out = csv.writer(out)
             url = "https://au.rs-online.com/web/c/" \
                 "connectors/pcb-connectors/pcb-pin-socket-strips/"
-            with ExitStack() as cleanup:
-                [msg, response] = get_cached(url, urlopen, cleanup)
-                charset = msg.get_content_charset()
-                response = TextIOWrapper(response, charset)
-                cleanup.enter_context(response)
-                parser = HtmlTreeParser()
-                print(end="Parsing HTML ", flush=True, file=stderr)
-                # TODO: limit data
-                copyfileobj(response, DelegateWriter(parser.feed))
-                print("done", flush=True, file=stderr)
-            response = parser.close()
             
-            [counter] = response.iterfind(".//*[@class='mpcCounter']")
-            counter = "".join(counter.itertext())
-            
-            with rewrap(stdout, newline="") as out:
-                out = csv.writer(out)
+            first = True
+            total = 0
+            while True:
+                with ExitStack() as cleanup:
+                    [msg, response] = get_cached(url, urlopen, cleanup)
+                    charset = msg.get_content_charset()
+                    response = TextIOWrapper(response, charset)
+                    cleanup.enter_context(response)
+                    parser = HtmlTreeParser()
+                    print(end="Parsing HTML ", flush=True, file=stderr)
+                    # TODO: limit data
+                    copyfileobj(response, DelegateWriter(parser.feed))
+                    print("done", flush=True, file=stderr)
+                response = parser.close()
+                
+                [page_counter] = response.iterfind(
+                    ".//*[@class='mpcCounter']")
+                page_counter = int("".join(page_counter.itertext()))
                 rows = scrape_table(response)
-                out.writerows(rows)
+                page_header = next(rows)
+                if first:
+                    counter = page_counter
+                    header = page_header
+                    out.writerow(header)
+                    first = False
+                assert page_counter == counter
+                assert page_header == header
+                for row in rows:
+                    total += 1
+                    out.writerow(row)
+                links = response.iterfind(".//link[@rel='next']")
+                try:
+                    url = next(links)
+                except StopIteration:
+                    break
+                [] = links
+                url = url.get("href")
+            assert total == counter
 
 def scrape_table(response):
     header = None
