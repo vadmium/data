@@ -20,6 +20,7 @@ class main:
         else:
             input = open(input, "rt", newline="")
         with input as input:
+            self.tk.wm_title(input.name)
             input = csv.reader(input)
             columns = next(input)
             columns = (dict(heading=heading, width=10)
