@@ -30,6 +30,7 @@ class main:
             self.view.bind("<ButtonPress-1>", self.on_press)
             self.view.bind("<B1-Motion>", self.on_drag)
             self.view.bind("<ButtonRelease-1>", self.on_release)
+            self.view.bind("<Double-Button-1>", self.on_doubleclick)
             self.view.bind("<Button-3>", self.on_context)
             self.view.focus_set()
             
@@ -61,10 +62,18 @@ class main:
             items = sorted(self.view.get_children(), key=key)
             self.view.set_children("", *items)
     
+    def on_doubleclick(self, event):
+        [region, *click] = self.click
+        if region == "separator":
+            [column] = click
+            width = max((self.view.min_width(item, column)
+                for item in self.view.get_children()), default=0)
+            self.view.column(column, width=width)
+    
     def get_click(self, event):
         region = self.view.identify_region(event.x, event.y)
         click = [region]
-        if region in {"heading", "cell"}:
+        if region in {"heading", "separator", "cell"}:
             click.append(self.view.identify_column(event.x))
             if region == "cell":
                 click.append(self.view.identify_row(event.y))
