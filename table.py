@@ -27,7 +27,9 @@ class main:
                 for heading in columns)
             self.view = Tree(view_frame, tree=False, columns=columns)
             scroll(self.view)
-            self.view.bind("<ButtonRelease-1>", self.on_click)
+            self.view.bind("<ButtonPress-1>", self.on_press)
+            self.view.bind("<B1-Motion>", self.on_drag)
+            self.view.bind("<ButtonRelease-1>", self.on_release)
             self.view.bind("<Button-3>", self.on_context)
             self.view.focus_set()
             
@@ -37,21 +39,36 @@ class main:
         
         self.tk.mainloop()
     
-    def on_click(self, event):
-        column = self.view.identify_column(event.x)
-        region = self.view.identify_region(event.x, event.y)
+    def on_press(self, event):
+        self.click = self.get_click(event)
+    def on_drag(self, event):
+        self.click = [None]
+    def on_release(self, event):
+        if self.get_click(event) != self.click:
+            return
+        [region, *click] = self.click
         if region == "cell":
-            item = self.view.identify_row(event.y)
+            [column, item] = click
             self.entry.delete(0, tkinter.END)
             self.entry.insert(0, self.view.set(item, column))
             self.entry.selection_range(0, tkinter.END)
             self.column = int(column.lstrip("#")) - 1
             self.entry.focus_set()
         if region == "heading":
+            [column] = click
             def key(item):
                 return self.view.set(item, column)
             items = sorted(self.view.get_children(), key=key)
             self.view.set_children("", *items)
+    
+    def get_click(self, event):
+        region = self.view.identify_region(event.x, event.y)
+        click = [region]
+        if region in {"heading", "cell"}:
+            click.append(self.view.identify_column(event.x))
+            if region == "cell":
+                click.append(self.view.identify_row(event.y))
+        return click
     
     def on_context(self, event):
         column = self.view.identify_column(event.x)
