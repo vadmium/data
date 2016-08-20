@@ -58,7 +58,7 @@ class main:
         if region == "heading":
             [column] = click
             def key(item):
-                return self.view.set(item, column)
+                return alnum_key(self.view.set(item, column))
             items = sorted(self.view.get_children(), key=key)
             self.view.set_children("", *items)
     
@@ -109,6 +109,47 @@ class Filter:
                 attached.append(item)
         self.ui.view.set_children("", *attached)
         self.window.destroy()
+
+def alnum_key(value):
+    '''
+    >>> alnum_key("2") < alnum_key("10")
+    True
+    >>> alnum_key("2") < alnum_key("1,000")
+    True
+    >>> alnum_key(".9x") < alnum_key("1x") < alnum_key("1.1x")
+    True
+    >>> alnum_key("1.02") < alnum_key("1.1")
+    True
+    >>> alnum_key("1 a") < alnum_key("1b") < alnum_key("1 c")
+    True
+    '''
+    numbers = list()
+    i = 0
+    while i < len(value):
+        if value[i].isdecimal() or value[i] == ".":
+            start = i
+            while value[i:i + 1] == "," or value[i:i + 1].isdecimal():
+                i += 1
+            whole = value[start:i].translate(_DROP_COMMAS)
+            start = i
+            if value[i:i + 1] == ".":
+                while True:
+                    i += 1
+                    if not value[i:i + 1].isdecimal():
+                        break
+            if whole:
+                whole = int(whole)
+            else:
+                whole = 0
+            numbers.append(("0", whole, value[start:i]))
+            while value[i:i + 1].isspace():
+                i += 1
+        else:
+            numbers.append((value[i],))
+            i += 1
+    return (numbers, value)
+
+_DROP_COMMAS = str.maketrans({",": ""})
 
 if __name__ == "__main__":
     import clifunc
