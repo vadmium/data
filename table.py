@@ -31,7 +31,7 @@ class main:
             self.view.bind("<B1-Motion>", self.on_drag)
             self.view.bind("<ButtonRelease-1>", self.on_release)
             self.view.bind("<Double-Button-1>", self.on_doubleclick)
-            self.view.bind("<Button-3>", self.on_context)
+            self.view.bind("<ButtonPress-3>", self.on_context)
             self.view.focus_set()
             
             self.items = list()
