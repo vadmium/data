@@ -54,6 +54,7 @@ def main(url):
             page_header = tuple(scrape_header(response))
             if first:
                 counter = page_counter
+                print("Total records: " + format(counter), file=stderr)
                 header = page_header
                 out.writerow(header)
                 first = False
