@@ -23,6 +23,7 @@ from tempfile import NamedTemporaryFile
 import os, os.path
 from shutil import copystat
 from collections import OrderedDict
+import ssl
 
 ATOM_NS = "http://www.w3.org/2005/Atom"
 ATOM_PREFIX = "{" + ATOM_NS + "}"
@@ -294,11 +295,22 @@ class main:
         else:
             refresh = True
         if refresh:
+            # The accounts.google.com server tends to shut the TCP connection
+            # down before indicating EOF at the SSL level. As long as the
+            # response is JSON, this should not matter.
+            context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+            try:  # Python with more secure SSLEOFError handling
+                context.suppress_ragged_eofs = True
+            except AttributeError:  # EOF error already handled as secure EOF
+                pass
+            handler = urllib.request.HTTPSHandler(context=context)
+            urlopen = urllib.request.build_opener(handler).open
             type = ("Content-Type",
                 "application/x-www-form-urlencoded; charset=UTF-8")
             print("POST grant_type=refresh_token",
                 end=" ", flush=True, file=sys.stderr)
             response = http_request(
+                urlopen=urlopen,
                 method="POST",
                 # URL taken from "console" JSON data; documented URL failed
                 url="https://accounts.google.com/o/oauth2/token",
