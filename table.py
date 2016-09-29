@@ -6,9 +6,11 @@ import tkinter
 from tkwrap import Tree, scroll
 from tkinter.ttk import Frame, Entry
 from data import rewrap
+from types import SimpleNamespace
+import math
 
 class main:
-    def __init__(self, input=None):
+    def __init__(self, input=None, *, field=()):
         self.tk = tkinter.Tk()
         self.entry = Entry(self.tk)
         self.entry.pack(fill=tkinter.BOTH, side=tkinter.TOP)
@@ -22,9 +24,13 @@ class main:
         with input as input:
             self.tk.wm_title(input.name)
             input = csv.reader(input)
-            columns = next(input)
-            columns = (dict(heading=heading, width=10)
-                for heading in columns)
+            headings = next(input)
+            columns = list()
+            for heading in headings:
+                columns.append(dict(heading=heading, width=10))
+            for heading in field:
+                [heading, _] = heading.split("=", 1)
+                columns.append(dict(heading=heading, width=10))
             self.view = Tree(view_frame, tree=False, columns=columns)
             scroll(self.view)
             self.view.bind("<ButtonPress-1>", self.on_press)
@@ -36,6 +42,20 @@ class main:
             
             self.items = list()
             for record in input:
+                row = SimpleNamespace()
+                for [heading, value] in zip(headings, record):
+                    num = value
+                    if num.startswith("$"):
+                        num = num[1:]
+                    try:
+                        value = float(num)
+                    except ValueError:
+                        pass
+                    setattr(row, heading.replace(" ", "_"), value)
+                env = dict(row=row, math=math)
+                for expr in field:
+                    [_, expr] = expr.split("=", 1)
+                    record.append(eval(expr, env))
                 self.items.append(self.view.add(values=record))
         
         self.tk.mainloop()
