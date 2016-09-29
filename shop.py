@@ -18,60 +18,59 @@ import email.generator
 from data import rewrap
 from gzip import GzipFile
 
-class main:
-    def __init__(self, url):
-        with PersistentConnectionHandler(timeout=100) as handler, \
-                rewrap(stdout, newline="") as out:
-            urlopen = urllib.request.build_opener(handler).open
-            out = csv.writer(out)
-            
-            first = True
-            total = 0
-            while True:
-                with ExitStack() as cleanup:
-                    [msg, response] = get_cached(url, urlopen, cleanup)
-                    
-                    for encoding in header_list(msg, "Content-Encoding"):
-                        if encoding.lower() in {"gzip", "x-gzip"}:
-                            if isinstance(response, GzipFile):
-                                raise TypeError("Recursive gzip encoding")
-                            response = GzipFile(fileobj=response, mode="rb")
-                        else:
-                            msg = "Unhandled encoding: " + repr(encoding)
-                            raise TypeError(msg)
-                    
-                    charset = msg.get_content_charset()
-                    response = TextIOWrapper(response, charset)
-                    parser = HtmlTreeParser()
-                    print(end="Parsing HTML ", flush=True, file=stderr)
-                    # TODO: limit data
-                    copyfileobj(response, DelegateWriter(parser.feed))
-                    print("done", flush=True, file=stderr)
-                response = parser.close()
+def main(url):
+    with PersistentConnectionHandler(timeout=100) as handler, \
+            rewrap(stdout, newline="") as out:
+        urlopen = urllib.request.build_opener(handler).open
+        out = csv.writer(out)
+        
+        first = True
+        total = 0
+        while True:
+            with ExitStack() as cleanup:
+                [msg, response] = get_cached(url, urlopen, cleanup)
                 
-                [page_counter] = response.iterfind(
-                    ".//*[@class='mpcCounter']")
-                page_counter = int("".join(page_counter.itertext()))
-                page_header = tuple(scrape_header(response))
-                if first:
-                    counter = page_counter
-                    header = page_header
-                    out.writerow(header)
-                    first = False
-                assert page_counter == counter
-                assert page_header == header
-                for row in scrape_records(response):
-                    total += 1
-                    assert len(row) == len(header)
-                    out.writerow(row)
-                links = response.iterfind(".//link[@rel='next']")
-                try:
-                    url = next(links)
-                except StopIteration:
-                    break
-                [] = links
-                url = url.get("href")
-            assert total == counter
+                for encoding in header_list(msg, "Content-Encoding"):
+                    if encoding.lower() in {"gzip", "x-gzip"}:
+                        if isinstance(response, GzipFile):
+                            raise TypeError("Recursive gzip encoding")
+                        response = GzipFile(fileobj=response, mode="rb")
+                    else:
+                        msg = "Unhandled encoding: " + repr(encoding)
+                        raise TypeError(msg)
+                
+                charset = msg.get_content_charset()
+                response = TextIOWrapper(response, charset)
+                parser = HtmlTreeParser()
+                print(end="Parsing HTML ", flush=True, file=stderr)
+                # TODO: limit data
+                copyfileobj(response, DelegateWriter(parser.feed))
+                print("done", flush=True, file=stderr)
+            response = parser.close()
+            
+            [page_counter] = response.iterfind(
+                ".//*[@class='mpcCounter']")
+            page_counter = int("".join(page_counter.itertext()))
+            page_header = tuple(scrape_header(response))
+            if first:
+                counter = page_counter
+                header = page_header
+                out.writerow(header)
+                first = False
+            assert page_counter == counter
+            assert page_header == header
+            for row in scrape_records(response):
+                total += 1
+                assert len(row) == len(header)
+                out.writerow(row)
+            links = response.iterfind(".//link[@rel='next']")
+            try:
+                url = next(links)
+            except StopIteration:
+                break
+            [] = links
+            url = url.get("href")
+        assert total == counter
 
 def scrape_header(response):
     header = None
