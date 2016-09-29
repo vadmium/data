@@ -84,7 +84,7 @@ def scrape_header(response):
     
     yield from ("href", "prodDesc")
     yield next(header)
-    yield from ("pricing", "packaging", "pack size", "min packs")
+    yield from ("pricing unit", "packaging", "pack size", "min packs")
     cell = next(header)
     assert cell == "Part Details"
     yield from PART_DETAILS
