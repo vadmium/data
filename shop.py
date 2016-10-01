@@ -226,7 +226,7 @@ class HtmlTreeParser(HTMLParser):
 
 def dump_tree(tree, _indent=""):
     if not isinstance(stdout, TextIOWrapper):
-        _dump_element(stdout, html, "")
+        _dump_element(stdout, tree, "")
         return
     with rewrap(stdout.buffer, errors="backslashreplace") as out:
         _dump_element(out, tree, "")
